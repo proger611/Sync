@@ -138,6 +138,15 @@ public class Message {
         this.sourceId = sourceId;
     }
 
+    public boolean isValidPhone() {
+        return valid;
+    }
+
+    public boolean setValidPhone(boolean b) {
+         return valid = b;
+    }
+
+
     @Override
     public String toString() {
         return "Message{" +
@@ -178,5 +187,6 @@ public class Message {
     private int smsCount; //19
     private String patientAppt; //20
     private int sourceId; //21
+    private boolean valid; //21
 
 }

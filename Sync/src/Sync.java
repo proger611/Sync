@@ -42,7 +42,6 @@ public class Sync {
             monitoringServiceRun();
         }
 
-        //testMessages241();
         log.info("Done sync 242 -> 241... {}{} ", ENTER, ENTER);
 
         if (mod == MOD.TEST) {
@@ -64,7 +63,7 @@ public class Sync {
 
             PreparedStatement stmt = connection242.prepareStatement("SELECT * from message where message_Time_Received >= ? and Message_Status = ? and message_text not like ? order by message_id");
             stmt.setDate(1, java.sql.Date.valueOf(LocalDate.now().toString()));
-            stmt.setString(2, "S");
+            stmt.setString(2, "N");
             stmt.setString(3, "%[%]");
             stmt.setMaxRows(300);
 
@@ -87,7 +86,9 @@ public class Sync {
                             "patient_appt) " +
                             "values (null, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, ?, null, null, ?, ?)");
 
-                    for (Message x : list) {
+                    List<Message> listFlt = list.stream().filter(x -> x.isValidPhone()).collect(Collectors.toList());
+
+                    for (Message x : listFlt) {
 
                         stmtIsert.setString(1, null);
                         stmtIsert.setString(2, x.getPhone());
@@ -128,17 +129,18 @@ public class Sync {
 
                 if (mod == MOD.WAR) {
 
-                     PreparedStatement stmtUpdate = connection242.prepareStatement("UPDATE message set message_status = ? where message_id = ?");
+                     PreparedStatement stmtUpdate = connection242.prepareStatement("UPDATE message set message_status = ? and message_comment = ? where message_id = ?");
 
                     for (Message msg : list) {
-                        stmtUpdate.setString(1, "S");
-                        stmtUpdate.setLong(2, msg.getMessageId());
+                        stmtUpdate.setString(1, msg.isValidPhone() ? "S" : "F");
+                        stmtUpdate.setString(2, msg.isValidPhone() ? "" : "PHONE ERROR");
+                        stmtUpdate.setLong(3, msg.getMessageId());
                         stmtUpdate.addBatch();
                     }
 
                     stmtUpdate.executeBatch();
 
-                    log.info("    + message update to 242: {}", list.size());
+                    log.info("    + message is OK update to 242: {}", list.size());
 
                     connection242.commit();
                     stmtUpdate.close();
@@ -401,10 +403,33 @@ public class Sync {
             msg.setPatientAppt(rs.getString("patient_appt"));
             msg.setSourceId(rs.getInt("source_id"));
 
+            msg.setValidPhone(validPhone(rs.getString("phone_number")));
+
             list.add(msg);
         }
 
         return list;
+    }
+
+    static boolean validPhone(String phone) {
+
+        boolean b = true;
+
+        phone = phone.replaceAll("\\+", "");
+
+        if (phone.startsWith("8")) {
+            phone = phone.replaceAll("8", "7");
+        }
+
+        if (!phone.startsWith("7")) {
+            b = false;
+        }
+
+        if (phone.length() != 11) {
+            b = false;
+        }
+
+        return b;
     }
 
     private static String prepareMsgText(Message msg) {
