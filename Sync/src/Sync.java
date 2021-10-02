@@ -1,35 +1,60 @@
-import com.mysql.jdbc.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.net.URLConnection;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class Sync {
     private static final String url241 = "jdbc:mysql://192.168.0.241/smss";
     private static final String url242 = "jdbc:mysql://192.168.0.242/smss";
     private static final String user = "adm";
     private static final String pwd = "adm";
+    private static final String dirLocation = "C:\\SMSC\\logs\\log";
+    private static final String ENTER = System.getProperty("line.separator");
 
-    private static Logger log = LoggerFactory.getLogger(Sync.class);
+    private static final Logger log = LoggerFactory.getLogger(Sync.class);
+
+    private static MOD mod = MOD.TEST;
 
     public static void main(String argv[]) {
         log.info("Start sync 242 -> 241...");
 
+        setMod(MOD.TEST);
+        log.info("MOD: {}", mod);
+
         moveMessages();
         //moveResponse();
+        if (mod == MOD.WAR) {
+            monitoringServiceRun();
+        }
 
         //testMessages241();
+        log.info("Done sync 242 -> 241... {}{} ", ENTER, ENTER);
 
+        if (mod == MOD.TEST) {
+            log.info("TEST ENTER");
+        }
+    }
+
+    private static void setMod(MOD mod) {
+        mod = mod;
     }
 
     public static void moveMessages() {
-        log.info("I. Start message sync");
+        log.info(" I. Start message sync");
         try {
             Connection connection242 = DriverManager.getConnection(url242, user, pwd);
             Connection connection241 = DriverManager.getConnection(url242, user, pwd);
@@ -38,7 +63,7 @@ public class Sync {
 
             PreparedStatement stmt = connection242.prepareStatement("SELECT * from message where message_Time_Received >= ? and Message_Status = ? and message_text not like ? order by message_id");
             stmt.setDate(1, java.sql.Date.valueOf(LocalDate.now().toString()));
-            stmt.setString(2, "E");
+            stmt.setString(2, "S");
             stmt.setString(3, "%[%]");
             stmt.setMaxRows(300);
 
@@ -51,60 +76,79 @@ public class Sync {
             stmt.close();
             rs.close();
 
-            PreparedStatement stmtIsert = null;
-            for (Message x : list) {
+            if (list.size() > 0) {
 
-                stmtIsert = connection241.prepareStatement("INSERT into message " +
+                if (mod == MOD.WAR) {
+                    PreparedStatement stmtIsert = connection241.prepareStatement("INSERT into message " +
                             "(message_id, Provider_Id, phone_number, message_text, message_status, message_retries, message_time_received, " +
                             "user_id, sub_user_id, message_comment, patient_id, patient_surname, patient_first_name, patient_title, " +
                             "message_time_sent, message_IMSI_sent, sms_id, sms_delivery_status_id, sms_delivery_time, sms_count, " +
                             "patient_appt) " +
                             "values (null, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, ?, null, null, ?, ?)");
 
-                stmtIsert.setString(1, null);
-                stmtIsert.setString(2,x.getPhone());
-                stmtIsert.setString(3, prepareMsgText(x));
-                stmtIsert.setString(4, x.getStatus());
-                stmtIsert.setInt(5, x.getRetries());
-                stmtIsert.setDate(6, x.getTimeReceived());
-                stmtIsert.setString(7, x.getUserId());
-                stmtIsert.setString(8, x.getSubUser());
-                stmtIsert.setString(9, x.getCmt());
-                stmtIsert.setString(10, x.getPatientId());
-                stmtIsert.setString(11, x.getPatientSurname());
-                stmtIsert.setString(12, x.getPatientFirstName());
-                stmtIsert.setString(13, x.getPatientTitle());
-                stmtIsert.setInt(14, x.getSmsId242());
-                stmtIsert.setInt(15, x.getSmsCount());
-                stmtIsert.setString(16, x.getPatientAppt());
+                    for (Message x : list) {
 
-                stmtIsert.execute();
+                        stmtIsert.setString(1, null);
+                        stmtIsert.setString(2, x.getPhone());
+                        stmtIsert.setString(3, prepareMsgText(x));
+                        stmtIsert.setString(4, x.getStatus());
+                        stmtIsert.setInt(5, x.getRetries());
+                        stmtIsert.setDate(6, x.getTimeReceived());
+                        stmtIsert.setString(7, x.getUserId());
+                        stmtIsert.setString(8, x.getSubUser());
+                        stmtIsert.setString(9, x.getCmt());
+                        stmtIsert.setString(10, x.getPatientId());
+                        stmtIsert.setString(11, x.getPatientSurname());
+                        stmtIsert.setString(12, x.getPatientFirstName());
+                        stmtIsert.setString(13, x.getPatientTitle());
+                        stmtIsert.setInt(14, x.getSmsId242());
+                        stmtIsert.setInt(15, x.getSmsCount());
+                        stmtIsert.setString(16, x.getPatientAppt());
+                        stmtIsert.addBatch();
+                    }
 
-                stmtIsert.close();
+                    int[] msgIds = stmtIsert.executeBatch();
+
+                    log.info("    + message insert to 241: {}", msgIds.length);
+
+                    connection241.commit();
+
+                    stmtIsert.close();
+
+                    log.info("    + message insert to 241, COMMIT");
+
+                } else {
+                    for (Message x : list) {
+                        log.info("    + TEST INSERT 241: {}", x);
+                    }
+                }
+
+                //----------------------------------------------------
+
+                if (mod == MOD.WAR) {
+
+                     PreparedStatement stmtUpdate = connection242.prepareStatement("UPDATE message set message_status = ? where message_id = ?");
+
+                    for (Message msg : list) {
+                        stmtUpdate.setString(1, "S");
+                        stmtUpdate.setLong(2, msg.getMessageId());
+                        stmtUpdate.addBatch();
+                    }
+
+                    stmtUpdate.executeBatch();
+
+                    log.info("    + message update to 242: {}", list.size());
+
+                    connection242.commit();
+                    stmtUpdate.close();
+
+                    log.info("    + message UPDATE status 242, COMMIT");
+                } else {
+                    for (Message msg : list) {
+                        log.info("    + TEST UPDATE: {}", msg);
+                    }
+                }
             }
-
-            log.info("    + message insert to 241: {}", list.size());
-
-            connection241.commit();
-
-            log.info("    + message insert to 241, COMMIT");
-
-            //---
-
-            PreparedStatement stmtUpdate = null;
-
-            for (Message msg : list) {
-                stmtUpdate = connection241.prepareStatement("UPDATE message set message_status = ? where message_id = ?");
-
-                stmtUpdate.setString(1, "S");
-                stmtUpdate.setLong(2, msg.getMessageId());
-
-                log.info("    + message UPDATE count 242: {}", stmtUpdate.executeUpdate());
-            }
-
-            connection242.commit();
-
-            log.info("    + message UPDATE status 242, COMMIT");
 
             connection241.close();
             connection242.close();
@@ -113,11 +157,11 @@ public class Sync {
             log.error("Message sync error! ", e);
         }
 
-        log.info("I. DONE message sync");
+        log.info(" I. DONE message sync");
     }
 
     private static void moveResponse() {
-        log.info("II. Start response sync");
+        log.info(" II. Start response sync");
         try {
             Connection connection242 = DriverManager.getConnection(url242, user, pwd);
             Connection connection241 = DriverManager.getConnection(url242, user, pwd);
@@ -140,58 +184,70 @@ public class Sync {
             stmt.close();
             rs.close();
 
-            PreparedStatement stmtIsert = null;
-            for (Response x : list) {
-
-                stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
+            if (mod == MOD.WAR) {
+                PreparedStatement stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
                         "(message_reply_id, message_reply_to, message_reply_from, message_reply_text, message_status," +
                         " message_reply_time_received, message_reply_message_id) " +
                         "values (null, ?, ?, ?, ?, ?, ?)");
 
-                stmtIsert.setString(1, "serv_241");
-                stmtIsert.setString(2, x.getReplyFrom());
-                stmtIsert.setString(2, x.getReplyMsg());
-                stmtIsert.setString(2, "P");
-                stmtIsert.setDate(2, x.getReplyTimeReceived());
-                stmtIsert.setLong(2, x.getMessageId());
+                for (Response x : list) {
 
-                stmtIsert.execute();
+                    stmtIsert.setString(1, "serv_241");
+                    stmtIsert.setString(2, x.getReplyFrom());
+                    stmtIsert.setString(2, x.getReplyMsg());
+                    stmtIsert.setString(2, "P");
+                    stmtIsert.setDate(2, x.getReplyTimeReceived());
+                    stmtIsert.setLong(2, x.getMessageId());
+                    stmtIsert.addBatch();
+                }
 
+                int[] updateResp = stmtIsert.executeBatch();
+                log.info("    + RESPONSE INSERT to 242: {}", updateResp.length );
+
+                connection242.commit();
                 stmtIsert.close();
+
+                log.info("    + RESPONSE INSERT to 242, COMMIT");
+
+            } else {
+                for (Response msg : list) {
+                    log.info("    + TEST RESPONSE INSERT to 242", msg);
+                }
             }
 
-            log.info("    + RESPONSE INSERT to 242: {}", list.size());
-
-            connection242.commit();
 
             //---
 
-            PreparedStatement stmtUpdate = null;
+            if (mod == MOD.WAR) {
+                PreparedStatement stmtUpdate = connection241.prepareStatement("UPDATE message_reply set message_status = ? where message_reply_id = ?");
 
-            for (Response msg : list) {
-                stmtUpdate = connection241.prepareStatement("UPDATE message_reply set message_status = ? where message_reply_id = ?");
+                for (Response msg : list) {
+                    stmtUpdate.setString(1, "I");
+                    stmtUpdate.setLong(2, msg.getMessageId());
+                    stmtUpdate.addBatch();
+                }
 
-                stmtUpdate.setString(1, "I");
-                stmtUpdate.setLong(2, msg.getMessageId());
+                int[] updateResp = stmtUpdate.executeBatch();
+                log.info("    + RESPONSE UPDATE status 241: {}", updateResp.length);
 
-                log.info("    + RESPONSE UPDATE count 241: {}", stmtUpdate.executeUpdate());
-
+                connection241.commit();
                 stmtUpdate.close();
+
+                log.info("    + RESPONSE UPDATE status 241, COMMIT");
+            } else {
+                for (Response msg : list) {
+                    log.info("    + RESPONSE UPDATE status 241", msg);
+                }
             }
-
-            connection241.commit();
-
-            log.info("    + RESPONSE UPDATE status 241, COMMIT");
 
             connection241.close();
             connection242.close();
-
 
         }catch (Exception e) {
             log.error("Response sync error! ", e);
         }
 
-        log.info("II. DONE response sync");
+        log.info(" II. DONE response sync");
     }
 
     public static void testMessages241() {
@@ -257,6 +313,31 @@ public class Sync {
         log.info("   TEST: DONE message sync");
     }
 
+    private static void monitoringServiceRun() {
+        try {
+            List<File> files = Files.list(Paths.get(dirLocation))
+                    .map(Path::toFile)
+                    .collect(Collectors.toList());
+
+            if (files.size() < 18) {
+                log.info("send sms");
+
+                URL yahoo = new URL("http://smsc.ru/sys/send.php?login=centaur&psw=centaurapi&phones=79037794311&mes=WARN: Service sleep!");
+                URLConnection yc = yahoo.openConnection();
+                BufferedReader in = new BufferedReader(new InputStreamReader(yc.getInputStream()));
+                String inputLine = null;
+
+                while ((inputLine = in.readLine()) != null)
+                    log.info(inputLine);
+                in.close();
+            } else {
+                log.info(" + file list: {}", files.size());
+            }
+        } catch (Exception e) {
+            log.error("Monitoring service error: {}", e);
+        }
+    }
+
     private static List<Response> toResponse(ResultSet rs) throws SQLException {
         List<Response> list = new ArrayList<>();
         while (rs.next()) {
@@ -302,10 +383,12 @@ public class Sync {
         return list;
     }
 
-
-
     private static String prepareMsgText(Message msg) {
         return msg.getMsg().replaceAll("link", "http://d4w.su/" + Long.toHexString(msg.getMessageId()))
                 .replaceAll("opros", "http://d4w.su/o/" + Long.toHexString(msg.getMessageId()));
+    }
+
+    public static enum MOD {
+        TEST, WAR;
     }
 }
