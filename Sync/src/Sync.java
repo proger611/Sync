@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class Sync {
@@ -71,7 +72,7 @@ public class Sync {
 
             List<Message> list = toMsg(rs);
 
-            log.info("    + message count to sync: {}", list.size());
+            log.info("    + message count for sync: {}", list.size());
 
             stmt.close();
             rs.close();
@@ -179,10 +180,19 @@ public class Sync {
 
             List<Response> list = toResponse(rs);
 
-            log.info("    + response count to sync: {}", list.size());
+            log.info("    + response count for sync: {}", list.size());
 
             stmt.close();
             rs.close();
+
+            PreparedStatement stmtf = connection242.prepareStatement("SELECT message_id from message where phone_number = ? order by message_id desc");
+
+            for (Response resp : list) {
+                resp.setMessageId(findId(stmtf, resp.getReplyFrom()));
+            }
+
+            log.info("    + find message id for response: {}", list.stream().filter(x -> Objects.nonNull(x.getMessageId())).count());
+
 
             if (mod == MOD.WAR) {
                 PreparedStatement stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
@@ -195,7 +205,7 @@ public class Sync {
                     stmtIsert.setString(1, "serv_241");
                     stmtIsert.setString(2, x.getReplyFrom());
                     stmtIsert.setString(2, x.getReplyMsg());
-                    stmtIsert.setString(2, "P");
+                    stmtIsert.setString(2, (Objects.isNull(x.getMessageId()) ? "F" :"P"));
                     stmtIsert.setDate(2, x.getReplyTimeReceived());
                     stmtIsert.setLong(2, x.getMessageId());
                     stmtIsert.addBatch();
@@ -223,7 +233,7 @@ public class Sync {
 
                 for (Response msg : list) {
                     stmtUpdate.setString(1, "I");
-                    stmtUpdate.setLong(2, msg.getMessageId());
+                    stmtUpdate.setLong(2, msg.getReplyId());
                     stmtUpdate.addBatch();
                 }
 
@@ -250,6 +260,20 @@ public class Sync {
         log.info(" II. DONE response sync");
     }
 
+    private static Long findId(PreparedStatement stmtf, String phone) throws SQLException {
+
+        stmtf.setString(1, phone);
+        stmtf.setMaxRows(1);
+
+        ResultSet rs = stmtf.executeQuery();
+
+        long id = rs.getLong(1);
+
+        rs.close();
+        stmtf.close();
+
+        return id;
+    }
     public static void testMessages241() {
         log.info("I. TEST: Start message sync");
 
@@ -348,7 +372,7 @@ public class Sync {
             msg.setReplyMsg(rs.getString("message_reply_text"));
             msg.setReplyStatus(rs.getString("message_reply_status"));
             msg.setReplyTimeReceived(rs.getDate("message_reply_time_received"));
-            msg.setMessageId(rs.getLong("message_reply_message_id"));
+            //msg.setMessageId(rs.getLong("message_reply_message_id"));
 
             list.add(msg);
         }
