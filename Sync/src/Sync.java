@@ -37,7 +37,7 @@ public class Sync {
         log.info("MOD: {}", mod);
 
         //moveMessages();
-        moveResponse();
+        //moveResponse();
         if (mod == MOD.WAR) {
             monitoringServiceRun();
         }
@@ -203,16 +203,17 @@ public class Sync {
                     PreparedStatement stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
                             "(message_reply_id, message_reply_to, message_reply_from, message_reply_text, message_status," +
                             " message_reply_time_received, message_reply_message_id) " +
-                            "values (null, ?, ?, ?, ?, ?, ?)");
+                            "values (null, ?, ?, ?, ?, ?, ?, ?)");
 
                     for (Response x : list) {
 
                         stmtIsert.setString(1, "serv_241");
                         stmtIsert.setString(2, x.getReplyFrom());
-                        stmtIsert.setString(2, x.getReplyMsg());
-                        stmtIsert.setString(2, (Objects.isNull(x.getMessageId()) ? "F" :"P"));
-                        stmtIsert.setDate(2, x.getReplyTimeReceived());
-                        stmtIsert.setLong(2, x.getMessageId());
+                        stmtIsert.setString(3, x.getReplyMsg());
+                        stmtIsert.setString(4, (Objects.isNull(x.getMessageId()) ? "F" :"P"));
+                        stmtIsert.setDate(5, x.getReplyTimeReceived());
+                        stmtIsert.setLong(6, x.getMessageId());
+                        stmtIsert.setString(7, "DISABLE");
                         stmtIsert.addBatch();
                     }
 
