@@ -36,8 +36,8 @@ public class Sync {
         setMod(MOD.TEST);
         log.info("MOD: {}", mod);
 
-        moveMessages();
-        //moveResponse();
+        //moveMessages();
+        moveResponse();
         if (mod == MOD.WAR) {
             monitoringServiceRun();
         }
@@ -57,7 +57,7 @@ public class Sync {
         log.info(" I. Start message sync");
         try {
             Connection connection242 = DriverManager.getConnection(url242, user, pwd);
-            Connection connection241 = DriverManager.getConnection(url242, user, pwd);
+            Connection connection241 = DriverManager.getConnection(url241, user, pwd);
             connection241.setAutoCommit(false);
             connection242.setAutoCommit(false);
 
@@ -156,6 +156,8 @@ public class Sync {
             connection241.close();
             connection242.close();
 
+            log.info("    + connection CLOSE");
+
         } catch (Exception e) {
             log.error("Message sync error! ", e);
         }
@@ -167,7 +169,7 @@ public class Sync {
         log.info(" II. Start response sync");
         try {
             Connection connection242 = DriverManager.getConnection(url242, user, pwd);
-            Connection connection241 = DriverManager.getConnection(url242, user, pwd);
+            Connection connection241 = DriverManager.getConnection(url241, user, pwd);
             connection241.setAutoCommit(false);
             connection242.setAutoCommit(false);
 
@@ -175,7 +177,7 @@ public class Sync {
                     "and message_reply_status = ? and message_text not like ? order by message_reply_id");
 
             stmt.setDate(1, java.sql.Date.valueOf(LocalDate.now().toString()));
-            stmt.setString(2, "H");
+            stmt.setString(2, "I");
             stmt.setMaxRows(100);
 
             ResultSet rs = stmt.executeQuery();
@@ -187,74 +189,78 @@ public class Sync {
             stmt.close();
             rs.close();
 
-            PreparedStatement stmtf = connection242.prepareStatement("SELECT message_id from message where phone_number = ? order by message_id desc");
+            if(list.size() > 0) {
 
-            for (Response resp : list) {
-                resp.setMessageId(findId(stmtf, resp.getReplyFrom()));
-            }
+                PreparedStatement stmtf = connection242.prepareStatement("SELECT message_id from message where phone_number = ? order by message_id desc");
 
-            log.info("    + find message id for response: {}", list.stream().filter(x -> Objects.nonNull(x.getMessageId())).count());
-
-
-            if (mod == MOD.WAR) {
-                PreparedStatement stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
-                        "(message_reply_id, message_reply_to, message_reply_from, message_reply_text, message_status," +
-                        " message_reply_time_received, message_reply_message_id) " +
-                        "values (null, ?, ?, ?, ?, ?, ?)");
-
-                for (Response x : list) {
-
-                    stmtIsert.setString(1, "serv_241");
-                    stmtIsert.setString(2, x.getReplyFrom());
-                    stmtIsert.setString(2, x.getReplyMsg());
-                    stmtIsert.setString(2, (Objects.isNull(x.getMessageId()) ? "F" :"P"));
-                    stmtIsert.setDate(2, x.getReplyTimeReceived());
-                    stmtIsert.setLong(2, x.getMessageId());
-                    stmtIsert.addBatch();
+                for (Response resp : list) {
+                    resp.setMessageId(findId(stmtf, resp.getReplyFrom()));
                 }
 
-                int[] updateResp = stmtIsert.executeBatch();
-                log.info("    + RESPONSE INSERT to 242: {}", updateResp.length );
+                log.info("    + find message id for response: {}", list.stream().filter(x -> Objects.nonNull(x.getMessageId())).count());
 
-                connection242.commit();
-                stmtIsert.close();
+                if (mod == MOD.WAR) {
+                    PreparedStatement stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
+                            "(message_reply_id, message_reply_to, message_reply_from, message_reply_text, message_status," +
+                            " message_reply_time_received, message_reply_message_id) " +
+                            "values (null, ?, ?, ?, ?, ?, ?)");
 
-                log.info("    + RESPONSE INSERT to 242, COMMIT");
+                    for (Response x : list) {
 
-            } else {
-                for (Response msg : list) {
-                    log.info("    + TEST RESPONSE INSERT to 242", msg);
+                        stmtIsert.setString(1, "serv_241");
+                        stmtIsert.setString(2, x.getReplyFrom());
+                        stmtIsert.setString(2, x.getReplyMsg());
+                        stmtIsert.setString(2, (Objects.isNull(x.getMessageId()) ? "F" :"P"));
+                        stmtIsert.setDate(2, x.getReplyTimeReceived());
+                        stmtIsert.setLong(2, x.getMessageId());
+                        stmtIsert.addBatch();
+                    }
+
+                    int[] updateResp = stmtIsert.executeBatch();
+                    log.info("    + RESPONSE INSERT to 242: {}", updateResp.length );
+
+                    connection242.commit();
+                    stmtIsert.close();
+
+                    log.info("    + RESPONSE INSERT to 242, COMMIT");
+
+                } else {
+                    for (Response msg : list) {
+                        log.info("    + TEST response INSERT to 242", msg);
+                    }
                 }
-            }
 
 
-            //---
+                //---
 
-            if (mod == MOD.WAR) {
-                PreparedStatement stmtUpdate = connection241.prepareStatement("UPDATE message_reply set message_status = ? where message_reply_id = ?");
+                if (mod == MOD.WAR) {
+                    PreparedStatement stmtUpdate = connection241.prepareStatement("UPDATE message_reply set message_status = ? where message_reply_id = ?");
 
-                for (Response msg : list) {
-                    stmtUpdate.setString(1, "I");
-                    stmtUpdate.setLong(2, msg.getReplyId());
-                    stmtUpdate.addBatch();
-                }
+                    for (Response msg : list) {
+                        stmtUpdate.setString(1, "I");
+                        stmtUpdate.setLong(2, msg.getReplyId());
+                        stmtUpdate.addBatch();
+                    }
 
-                int[] updateResp = stmtUpdate.executeBatch();
-                log.info("    + RESPONSE UPDATE status 241: {}", updateResp.length);
+                    int[] updateResp = stmtUpdate.executeBatch();
+                    log.info("    + RESPONSE UPDATE status 241: {}", updateResp.length);
 
-                connection241.commit();
-                stmtUpdate.close();
 
-                log.info("    + RESPONSE UPDATE status 241, COMMIT");
-            } else {
-                for (Response msg : list) {
-                    log.info("    + RESPONSE UPDATE status 241", msg);
+                    connection241.commit();
+                    stmtUpdate.close();
+
+                    log.info("    + RESPONSE UPDATE status 241, COMMIT");
+                } else {
+                    for (Response msg : list) {
+                        log.info("    + TEST response UPDATE status 241 {}", msg);
+                    }
                 }
             }
 
             connection241.close();
             connection242.close();
 
+            log.info("    + connection CLOSE");
         }catch (Exception e) {
             log.error("Response sync error! ", e);
         }
@@ -267,11 +273,14 @@ public class Sync {
         stmtf.setString(1, phone);
         stmtf.setMaxRows(1);
 
-        ResultSet rs = stmtf.executeQuery();
+        ResultSet rss = stmtf.executeQuery();
 
-        long id = rs.getLong(1);
+        Long id = null;
+        while (rss.next()) {
+            id = rss.getLong(1);
+        }
 
-        rs.close();
+        rss.close();
         stmtf.close();
 
         return id;
