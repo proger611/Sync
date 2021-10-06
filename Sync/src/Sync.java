@@ -28,19 +28,18 @@ public class Sync {
 
     private static final Logger log = LoggerFactory.getLogger(Sync.class);
 
-    private static MOD mod = MOD.TEST;
+    private static MOD mod = MOD.WAR;
 
     public static void main(String argv[]) {
         log.info("Start sync 242 -> 241...");
 
-        setMod(MOD.TEST);
         log.info("MOD: {}", mod);
 
-        //moveMessages();
-        //moveResponse();
-        if (mod == MOD.WAR) {
-            monitoringServiceRun();
-        }
+        moveMessages();
+        moveResponse();
+//        if (mod == MOD.WAR) {
+//            monitoringServiceRun();
+//        }
 
         log.info("Done sync 242 -> 241... {}{} ", ENTER, ENTER);
 
@@ -55,9 +54,12 @@ public class Sync {
 
     public static void moveMessages() {
         log.info(" I. Start message sync");
+
+        Connection connection242 = null;
+        Connection connection241 = null;
         try {
-            Connection connection242 = DriverManager.getConnection(url242, user, pwd);
-            Connection connection241 = DriverManager.getConnection(url241, user, pwd);
+            connection242 = DriverManager.getConnection(url242, user, pwd);
+            connection241 = DriverManager.getConnection(url241, user, pwd);
             connection241.setAutoCommit(false);
             connection242.setAutoCommit(false);
 
@@ -129,7 +131,7 @@ public class Sync {
 
                 if (mod == MOD.WAR) {
 
-                     PreparedStatement stmtUpdate = connection242.prepareStatement("UPDATE message set message_status = ? and message_comment = ? where message_id = ?");
+                     PreparedStatement stmtUpdate = connection242.prepareStatement("UPDATE message set message_status = ?, message_comment = ? where message_id = ?");
 
                     for (Message msg : list) {
                         stmtUpdate.setString(1, msg.isValidPhone() ? "S" : "F");
@@ -160,6 +162,18 @@ public class Sync {
 
         } catch (Exception e) {
             log.error("Message sync error! ", e);
+
+            try {
+                if (Objects.nonNull(connection241)) {
+                    connection241.close();
+                }
+
+                if (Objects.nonNull(connection242)) {
+                    connection242.close();
+                }
+            } catch (Exception ex) {
+                log.error("Connection commit error! ", ex);
+            }
         }
 
         log.info(" I. DONE message sync");
@@ -167,17 +181,20 @@ public class Sync {
 
     private static void moveResponse() {
         log.info(" II. Start response sync");
+        Connection connection242 = null;
+        Connection connection241 = null;
+
         try {
-            Connection connection242 = DriverManager.getConnection(url242, user, pwd);
-            Connection connection241 = DriverManager.getConnection(url241, user, pwd);
+            connection242 = DriverManager.getConnection(url242, user, pwd);
+            connection241 = DriverManager.getConnection(url241, user, pwd);
             connection241.setAutoCommit(false);
             connection242.setAutoCommit(false);
 
             PreparedStatement stmt = connection241.prepareStatement("SELECT * from message_reply where message_reply_Time_Received >= ? " +
-                    "and message_reply_status = ? and message_text not like ? order by message_reply_id");
+                    "and message_reply_status = ? order by message_reply_id");
 
             stmt.setDate(1, java.sql.Date.valueOf(LocalDate.now().toString()));
-            stmt.setString(2, "I");
+            stmt.setString(2, "H");
             stmt.setMaxRows(100);
 
             ResultSet rs = stmt.executeQuery();
@@ -201,8 +218,8 @@ public class Sync {
 
                 if (mod == MOD.WAR) {
                     PreparedStatement stmtIsert = connection242.prepareStatement("INSERT into message_reply " +
-                            "(message_reply_id, message_reply_to, message_reply_from, message_reply_text, message_status," +
-                            " message_reply_time_received, message_reply_message_id) " +
+                            "(message_reply_id, message_reply_to, message_reply_from, message_reply_text, message_reply_status," +
+                            " message_reply_time_received, message_reply_message_id, message_reply_IMSI) " +
                             "values (null, ?, ?, ?, ?, ?, ?, ?)");
 
                     for (Response x : list) {
@@ -235,7 +252,7 @@ public class Sync {
                 //---
 
                 if (mod == MOD.WAR) {
-                    PreparedStatement stmtUpdate = connection241.prepareStatement("UPDATE message_reply set message_status = ? where message_reply_id = ?");
+                    PreparedStatement stmtUpdate = connection241.prepareStatement("UPDATE message_reply set message_reply_status = ? where message_reply_id = ?");
 
                     for (Response msg : list) {
                         stmtUpdate.setString(1, "I");
@@ -259,11 +276,23 @@ public class Sync {
             }
 
             connection241.close();
-            connection242.close();
+
 
             log.info("    + connection CLOSE");
         }catch (Exception e) {
             log.error("Response sync error! ", e);
+
+            try {
+                if (Objects.nonNull(connection241)) {
+                    connection241.close();
+                }
+
+                if (Objects.nonNull(connection242)) {
+                    connection242.close();
+                }
+            } catch (Exception ex) {
+                log.error("Connection commit error! ", ex);
+            }
         }
 
         log.info(" II. DONE response sync");
@@ -282,7 +311,6 @@ public class Sync {
         }
 
         rss.close();
-        stmtf.close();
 
         return id;
     }
